@@ -1,0 +1,1305 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Fenmouth Approach: an approach radar game. Vector arrivals onto the ILS, send departures out, keep everyone separated.">
+<style>
+html{-webkit-text-size-adjust:100%;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+<title>Fenmouth Approach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=B612:ital,wght@0,400;0,700;1,400&family=B612+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: a controller's position. Radar scope beside the strip bay and radio.
+   Deliberately single-theme: a dark operations-room display, every colour set explicitly. */
+:root{
+  color-scheme:dark;
+  --room:#0E1318;
+  --scope:#121A21;
+  --sea:#0F171E;
+  --coast:#27333E;
+  --ring:#22303B;
+  --ring-text:#4D5E6E;
+  --cl:#9A6496;
+  --fix:#6E8194;
+  --rwy:#CAD3DC;
+  --panel:#161E26;
+  --panel-2:#1D2731;
+  --line:#2B3744;
+  --text:#D8DFE6;
+  --muted:#8A97A4;
+  --arr:#F0E2BE;
+  --dep:#9CD6E8;
+  --est:#9FDDAF;
+  --twr:#7A8796;
+  --warn:#FFB547;
+  --loss:#FF6B5D;
+  --sel:#FFFFFF;
+  --accent:#5DB0D4;
+  --accent-ink:#071820;
+
+  --font-display:"Barlow Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --font-ui:"B612","Segoe UI",system-ui,sans-serif;
+  --font-mono:"B612 Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{background:var(--room)}
+body{color:var(--text); font-family:var(--font-ui); font-size:15px; line-height:1.5; padding-inline:16px; -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px; margin:0 auto; padding-block:22px 48px; display:flex; flex-direction:column; gap:16px}
+p{margin:0}
+a{color:var(--accent)}
+code{font-family:var(--font-mono); font-size:.9em; color:var(--dep)}
+h1,h2,h3{margin:0; text-wrap:balance}
+h1{font-family:var(--font-display); font-weight:700; text-transform:uppercase; font-size:clamp(2.2rem,6vw,3.4rem); line-height:.9; letter-spacing:.02em}
+h2{font-family:var(--font-display); font-weight:600; text-transform:uppercase; font-size:1.15rem; letter-spacing:.06em; line-height:1.1}
+h3{font-size:.95rem}
+button,input{font:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.kicker{font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--muted)}
+
+.top{display:grid; gap:8px}
+.sub{color:var(--muted); max-width:62ch}
+
+/* ---------- bar ---------- */
+.bar{display:flex; flex-wrap:wrap; justify-content:space-between; align-items:stretch; gap:10px}
+.stats{display:flex; flex-wrap:wrap; border:1px solid var(--line); border-radius:4px; background:var(--panel)}
+.stat{display:grid; padding:5px 12px 6px; border-right:1px solid var(--line); min-width:0}
+.stat:last-child{border-right:0}
+.stat span{font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+.stat b{font-family:var(--font-mono); font-size:1.05rem; font-weight:700; font-variant-numeric:tabular-nums}
+.stat b.bad{color:var(--loss)}
+.ctrls{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.seg{display:inline-flex; border:1px solid var(--line); border-radius:4px; overflow:hidden; background:var(--panel)}
+.seg button{border:0; background:transparent; padding:7px 11px; cursor:pointer; font-size:.8rem; min-height:34px}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent); color:var(--accent-ink); font-weight:700}
+
+.b{border:1px solid var(--line); background:var(--panel-2); border-radius:4px; padding:6px 8px; cursor:pointer; font-size:.8rem; min-height:34px; line-height:1.2}
+.b:hover:not(:disabled){border-color:var(--muted)}
+.b:disabled{opacity:.35; cursor:default}
+.b.on{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700}
+.b.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700}
+.b.primary:hover:not(:disabled){filter:brightness(1.1)}
+.b.danger{border-color:var(--loss); color:var(--loss)}
+.b.big{padding:10px 14px; font-size:.95rem}
+
+/* ---------- game ---------- */
+.game{display:grid; grid-template-columns:minmax(0,1fr) 350px; gap:16px; align-items:start}
+@media (max-width:940px){ .game{grid-template-columns:minmax(0,1fr)} }
+.scope-wrap{position:relative; width:100%; max-width:780px; aspect-ratio:1/1; justify-self:center; background:var(--scope); border:1px solid var(--line); border-radius:6px; overflow:hidden}
+.scope-wrap canvas{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair; touch-action:manipulation}
+.overlay{position:absolute; inset:0; display:grid; place-items:center; padding:16px; background:rgba(8,12,16,.72)}
+.ov-card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:18px 20px; width:min(100%,360px); display:grid; gap:12px}
+.ov-card h2{font-size:1.8rem}
+.ov-card dl{margin:0; display:grid; gap:2px}
+.ov-card dl div{display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding-block:3px}
+.ov-card dt{color:var(--muted); font-size:.85rem}
+.ov-card dd{margin:0; font-family:var(--font-mono)}
+
+.panel{display:flex; flex-direction:column; gap:12px; min-width:0}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px 14px; display:grid; gap:10px; min-width:0}
+.rules{margin:0; padding-left:1.1em; display:grid; gap:7px; font-size:.88rem; line-height:1.45}
+.rules b{color:var(--text)}
+
+.sel-head{display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px}
+.cs{font-family:var(--font-mono); font-weight:700; font-size:1.25rem}
+.sel-sub{font-size:.85rem; color:var(--muted)}
+.ro{margin:0; display:grid; grid-template-columns:repeat(3,1fr); border-block:1px solid var(--line)}
+.ro div{padding:5px 0; display:grid; min-width:0}
+.ro div + div{padding-left:10px; border-left:1px solid var(--line)}
+.ro dt{font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+.ro dd{margin:0; font-family:var(--font-mono); font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.join{font-size:.82rem; line-height:1.4; padding:7px 9px; border-radius:4px; background:var(--panel-2); border-left:3px solid var(--muted)}
+.join.good{border-left-color:var(--est)}
+.join.ok{border-left-color:var(--dep)}
+.join.warn{border-left-color:var(--warn)}
+.join.bad{border-left-color:var(--loss)}
+.grp{display:grid; gap:4px}
+.glabel{font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+.r5{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px}
+.r6{display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:4px}
+.r3{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px}
+.r5 .b,.r6 .b,.r3 .b{padding-inline:2px; font-family:var(--font-mono); font-size:.78rem}
+.hdgv{display:grid; place-items:center; font-family:var(--font-mono); font-weight:700; border:1px dashed var(--line); border-radius:4px; font-size:.85rem}
+.acts{display:flex; flex-wrap:wrap; gap:6px}
+.acts .b{flex:1 1 auto}
+.tip{font-size:.82rem; color:var(--muted); line-height:1.4}
+.cmdline{display:grid; gap:4px}
+.cmdline input{width:100%; background:var(--scope); border:1px solid var(--line); border-radius:4px; padding:8px 10px; font-family:var(--font-mono); text-transform:uppercase; font-size:.9rem}
+.cmdline input::placeholder{text-transform:none; color:#5E6C79}
+.err{font-size:.8rem; color:var(--warn); min-height:1.2em}
+
+.strips{display:grid; gap:4px; max-height:300px; overflow-y:auto}
+.strip{display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:8px; align-items:baseline; background:var(--panel-2); border:1px solid transparent; border-left:4px solid var(--arr); border-radius:3px; padding:5px 8px; cursor:pointer; font-family:var(--font-mono); font-size:.78rem; user-select:none}
+.strip.dep{border-left-color:var(--dep)}
+.strip.est{border-left-color:var(--est)}
+.strip.twr{border-left-color:var(--twr); opacity:.75}
+.strip.warn{border-color:var(--warn); border-left-color:var(--warn)}
+.strip.lost{border-color:var(--loss); border-left-color:var(--loss)}
+.strip.sel{border-color:var(--sel); border-left-width:4px}
+.s-cs{font-weight:700}
+.s-mid{color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+.log{max-height:230px; overflow-y:auto; display:grid; gap:3px; font-family:var(--font-mono); font-size:.76rem; line-height:1.4}
+.log p{display:grid; grid-template-columns:3.4em minmax(0,1fr); gap:6px}
+.log .lt{color:#56636F}
+.l-atc{color:var(--text)}
+.l-pilot{color:var(--muted)}
+.l-sys{color:var(--warn)}
+.l-good{color:var(--est)}
+.l-bad{color:var(--loss)}
+
+/* ---------- notes ---------- */
+.notes{display:grid; gap:14px; border-top:1px solid var(--line); padding-top:22px; margin-top:8px}
+.note-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:18px 28px}
+.note-grid div{display:grid; gap:4px; align-content:start}
+.note-grid p{font-size:.9rem; color:var(--muted); line-height:1.5}
+footer{border-top:1px solid var(--line); padding-top:16px; display:grid; gap:8px; font-size:.82rem; color:var(--muted)}
+footer ul{margin:0; padding-left:1.1em; display:grid; gap:2px}
+.byline{color:var(--text); font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:.72rem}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <span class="kicker">Approach radar game · fictional airspace</span>
+    <h1>Fenmouth Approach</h1>
+    <p class="sub">You're the approach controller. Vector arrivals onto the ILS for runway 27, send departures out to their exit points, and keep every pair of aircraft 3 NM or 1,000 ft apart.</p>
+  </header>
+
+  <div class="bar">
+    <div class="stats">
+      <div class="stat"><span>Score</span><b id="stScore">0</b></div>
+      <div class="stat"><span>Landed</span><b id="stLanded">0</b></div>
+      <div class="stat"><span>Departed</span><b id="stDeparted">0</b></div>
+      <div class="stat"><span>Separation lost</span><b id="stLoss">0/3</b></div>
+      <div class="stat"><span>Shift</span><b id="stClock">00:00</b></div>
+    </div>
+    <div class="ctrls">
+      <div class="seg" role="group" aria-label="Radar view">
+        <button type="button" id="vSector" class="on">Sector</button>
+        <button type="button" id="vFinal">Final</button>
+      </div>
+      <div class="seg" role="group" aria-label="Game speed" id="speedSeg">
+        <button type="button" data-spd="1">1×</button>
+        <button type="button" data-spd="2">2×</button>
+        <button type="button" data-spd="4" class="on">4×</button>
+        <button type="button" data-spd="8">8×</button>
+      </div>
+      <button type="button" class="b" id="pauseBtn">Pause</button>
+    </div>
+  </div>
+
+  <div class="game">
+    <div class="scope-wrap" id="scopeWrap">
+      <canvas id="scope" role="img" aria-label="Radar display of Fenmouth airspace. Select an aircraft, then click the radar to turn it towards that point."></canvas>
+      <div class="overlay" id="overlay" hidden>
+        <div class="ov-card">
+          <span class="kicker">Shift over</span>
+          <h2 id="ovTitle">Handed over</h2>
+          <p id="ovWhy" class="small muted"></p>
+          <dl id="ovStats"></dl>
+          <button type="button" class="b primary big" id="againBtn">Start a new shift</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <section class="card" id="brief">
+        <h2>Your position</h2>
+        <ul class="rules">
+          <li><b>Arrivals</b> come in high and fly to LAPWI or TERNS, where they hold. Descend them to about 3,000 ft and turn them onto base: heading 180 from LAPWI, 360 from TERNS.</li>
+          <li><b>About 3 NM from the centreline</b>, press "Intercept and clear ILS". That's the real call: a heading that meets final at 30°, plus the approach clearance. The autopilot turns onto the localiser by itself. A marker on the centreline shows where the current heading will join.</li>
+          <li><b>Departures</b> wait at the runway. Clear them for take-off, climb them to FL70 or above, and send them to the exit fix on their label.</li>
+          <li><b>Separation:</b> every pair must stay 3 NM or 1,000 ft apart. Amber means a conflict within a minute. Three losses end the shift.</li>
+        </ul>
+        <div class="grp">
+          <span class="glabel">Traffic</span>
+          <div class="seg" role="group" aria-label="Traffic level" id="diffSeg">
+            <button type="button" data-diff="quiet">Quiet</button>
+            <button type="button" data-diff="busy" class="on">Busy</button>
+            <button type="button" data-diff="rush">Rush hour</button>
+          </div>
+        </div>
+        <button type="button" class="b primary big" id="startBtn">Start shift</button>
+        <p class="small muted" id="bestLine"></p>
+      </section>
+
+      <section class="card" id="cmdCard" hidden>
+        <p class="tip" id="noSel">Select an aircraft on the radar or in the traffic list.</p>
+        <div id="selBox" hidden style="display:grid;gap:10px">
+          <div class="sel-head"><span class="cs" id="sCs"></span><span class="small muted" id="sTel"></span></div>
+          <p class="sel-sub" id="sPhase"></p>
+          <dl class="ro">
+            <div><dt>Heading</dt><dd id="sHdg"></dd></div>
+            <div><dt>Altitude</dt><dd id="sAlt"></dd></div>
+            <div><dt>Speed</dt><dd id="sSpd"></dd></div>
+          </dl>
+          <p class="join" id="sJoin" hidden></p>
+          <div class="acts">
+            <button type="button" class="b primary" id="bInt">Intercept and clear ILS</button>
+            <button type="button" class="b" id="bIls">Clear ILS only</button>
+            <button type="button" class="b primary" id="bTo">Cleared for take-off</button>
+            <button type="button" class="b danger" id="bGa">Go around</button>
+          </div>
+          <div class="grp">
+            <span class="glabel">Heading</span>
+            <div class="r6" id="hdgChips"></div>
+          </div>
+          <div class="grp">
+            <span class="glabel">Adjust</span>
+            <div class="r5">
+              <button type="button" class="b" data-act="hdg" data-v="-30">L 30</button>
+              <button type="button" class="b" data-act="hdg" data-v="-10">L 10</button>
+              <span class="hdgv" id="sHdgSet">–</span>
+              <button type="button" class="b" data-act="hdg" data-v="10">R 10</button>
+              <button type="button" class="b" data-act="hdg" data-v="30">R 30</button>
+            </div>
+          </div>
+          <div class="grp">
+            <span class="glabel">Altitude (thousand ft)</span>
+            <div class="r6" id="altChips"></div>
+          </div>
+          <div class="grp">
+            <span class="glabel">Speed (knots)</span>
+            <div class="r5" id="spdChips"></div>
+          </div>
+          <div class="grp">
+            <span class="glabel">Direct to</span>
+            <div class="r3" id="dctChips"></div>
+          </div>
+          <p class="tip" id="sTip"></p>
+        </div>
+        <form class="cmdline" id="cmdForm" autocomplete="off">
+          <label class="glabel" for="cmdIn">Type a command</label>
+          <input id="cmdIn" type="text" spellcheck="false" placeholder="e.g. 180 A3 S180 · INT · D LAPWI · TO">
+          <span class="err" id="cmdErr" aria-live="polite"></span>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Traffic</h2>
+        <div class="strips" id="strips"></div>
+      </section>
+
+      <section class="card">
+        <h2>Radio</h2>
+        <div class="log" id="log"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="notes" aria-label="What's real in the game">
+    <h2>What's real in here</h2>
+    <div class="note-grid">
+      <div><h3>3 NM or 1,000 ft</h3><p>Radar controllers in busy airspace keep aircraft at least 3 NM apart sideways or 1,000 ft apart vertically. ICAO allows 2.5 NM between aircraft on the same final approach within 10 NM of the runway, if the runway is cleared quickly and other conditions are met. The game does the same.</p></div>
+      <div><h3>Downwind, base, intercept</h3><p>Controllers fly arrivals parallel to the runway (downwind), turn them across it (base), then give one call: "turn left heading 240, cleared ILS approach runway 27". The pilots fly that heading and the autopilot turns onto the localiser. ICAO says that last heading should meet final at 45° or less; 30° is normal.</p></div>
+      <div><h3>Level, below, then down</h3><p>Aircraft should be level on the localiser for at least 2 NM before they meet the glidepath, which they join from below. Do both at 30° or less and you score a textbook approach.</p></div>
+      <div><h3>Each type flies differently</h3><p>An ATR 72 rotates at about 110 knots and climbs slowly; a 737 needs about 150. Jets spool up, accelerate hard and then less hard, climb at V2 plus 10 knots to 1,500 ft, then speed up. Turns are limited to 25° of bank. Figures are approximate.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="byline">Made by Zub</span>
+    <p>Fenmouth, its airspace, fixes and airlines are invented, and the flying is simplified. It's a game, not a training tool.</p>
+    <ul>
+      <li><a href="https://www.eurocontrol.int/sites/default/files/publication/content/documents/nm/ecac_radar_sep_min.pdf" target="_blank" rel="noopener">EUROCONTROL: radar separation minima in ECAC states (ICAO 5, 3 and 2.5 NM)</a></li>
+      <li><a href="https://skybrary.aero/tutorials/unstabilised-approach-vectoring-short-final-distances" target="_blank" rel="noopener">SKYbrary: vectoring onto final and ICAO intercept requirements</a></li>
+    </ul>
+  </footer>
+</main>
+
+<script>
+(() => {
+/*SIM-START*/
+const SIM = (() => {
+  const D2R = Math.PI / 180;
+  const GS_FT_NM = Math.tan(3 * D2R) * 6076.12;
+  const TCH = 50;
+  const SCOPE_R = 30;
+  const TRANS_ALT = 6000;
+  const FIX_DEF = { KITTY: [20, 30], ORBAN: [100, 30], SELKA: [200, 30], DUNOR: [290, 30], LAPWI: [65, 19], TERNS: [115, 19] };
+  const FIXES = {};
+  for (const [name, [b, r]] of Object.entries(FIX_DEF)) FIXES[name] = { name, x: r * Math.sin(b * D2R), y: r * Math.cos(b * D2R), edge: r === 30 };
+  const IAF_FOR = { KITTY: 'LAPWI', DUNOR: 'LAPWI', ORBAN: 'TERNS', SELKA: 'TERNS' };
+  const ENTRY_ALT = { KITTY: [10000, 12000], DUNOR: [11000, 12000], ORBAN: [8000, 10000], SELKA: [9000, 11000] };
+  const EXITS = ['KITTY', 'ORBAN', 'SELKA', 'DUNOR'];
+  const AIRLINES = [['PFN', 'PUFFIN'], ['GNT', 'GANNET'], ['OSP', 'OSPREY'], ['CRW', 'CURLEW'], ['SKL', 'SKYLARK'], ['MLN', 'MERLIN']];
+  // approximate mid-weight figures; acc = take-off acceleration at brake release (kt/s), climb/desc in ft/min
+  const TYPES = [
+    { t: 'A320', max: 250, app: 137, vr: 142, v2: 147, acc: 5.2, climb: 2400, desc: 2000 },
+    { t: 'A20N', max: 250, app: 135, vr: 140, v2: 145, acc: 5.4, climb: 2600, desc: 2000 },
+    { t: 'B738', max: 250, app: 145, vr: 150, v2: 156, acc: 5.0, climb: 2500, desc: 2000 },
+    { t: 'E190', max: 250, app: 130, vr: 132, v2: 138, acc: 5.6, climb: 2800, desc: 2000 },
+    { t: 'AT76', max: 230, app: 110, vr: 108, v2: 114, acc: 4.0, climb: 1400, desc: 1500 }
+  ];
+  const DIFF = { quiet: 150, busy: 105, rush: 75 };
+  const ON_RWY = ['lineup', 'roll', 'rotate', 'landed'];
+  const SURFACE = ['ground', 'lineup', 'roll', 'rotate', 'landed'];
+
+  const norm = h => ((h % 360) + 360) % 360;
+  const angDiff = (a, b) => { let d = norm(a - b); if (d > 180) d -= 360; return d; };
+  const brgTo = (x1, y1, x2, y2) => norm(Math.atan2(x2 - x1, y2 - y1) / D2R);
+  const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+  const gsAlt = along => along * GS_FT_NM + TCH;
+  const pad3 = n => String(Math.max(0, Math.round(n))).padStart(3, '0');
+  const hdgStr = h => String(Math.round(norm(h)) || 360).padStart(3, '0');
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = arr => arr.map(v => [Math.random(), v]).sort((p, q) => p[0] - q[0]).map(p => p[1]);
+  const titleTel = tel => tel.split(' ').map(w => /^\d/.test(w) ? w : w[0] + w.slice(1).toLowerCase()).join(' ');
+  const altWords = a => a > TRANS_ALT ? `flight level ${Math.round(a / 100)}` : `altitude ${a.toLocaleString('en-GB')} feet`;
+  const levelStr = a => a > TRANS_ALT ? `FL${pad3(a / 100)}` : `${Math.round(a / 100) * 100} ft`;
+  const tas = a => a.spd * (1 + 0.02 * Math.max(0, a.alt) / 1000);
+  const turnRate = a => Math.min(3, 508.7 / Math.max(120, tas(a)));   // 25° bank limit, standard rate cap
+  const ok = () => ({ ok: true });
+  const no = msg => ({ ok: false, msg });
+
+  function say(S, k, m) {
+    S.log.push({ t: Math.round(S.t), k, m });
+    if (S.log.length > 60) S.log.shift();
+    S.logN++;
+  }
+  function atc(S, a, instr, rb) {
+    say(S, 'atc', `${titleTel(a.tel)}, ${instr}`);
+    say(S, 'pilot', `${rb}, ${titleTel(a.tel)}`);
+  }
+
+  function newCallsign(S) {
+    for (let i = 0; i < 60; i++) {
+      const [code, tel] = pick(AIRLINES);
+      const n = String(Math.random() < 0.5 ? 10 + Math.floor(Math.random() * 90) : 100 + Math.floor(Math.random() * 900));
+      const id = code + n;
+      if (!S.ac.some(a => a.id === id)) return { id, tel: `${tel} ${n}` };
+    }
+    S.seq++;
+    return { id: 'PFN' + (900 + S.seq), tel: 'PUFFIN ' + (900 + S.seq) };
+  }
+
+  function makeAc(S, kind, props) {
+    const cs = newCallsign(S);
+    const ty = pick(TYPES);
+    const w = Math.random();            // 0 = light, 1 = heavy
+    const vr = Math.round(ty.vr - 5 + w * 10);
+    return Object.assign({
+      id: cs.id, tel: cs.tel, type: ty.t, max: ty.max, kind,
+      app: Math.round(ty.app - 3 + w * 6), vr, v2: vr + (ty.v2 - ty.vr),
+      acc: ty.acc * (1.08 - 0.16 * w), climb: ty.climb * (1.1 - 0.2 * w), desc: ty.desc,
+      x: 0, y: 0, hdg: 270, alt: 0, spd: 0, tHdg: 270, tAlt: 0, tSpd: 0, turn: 0,
+      mode: 'heading', phase: null, timer: 0, rollT: 0, fix: null, exit: null, entry: null,
+      ils: false, loc: false, gs: false, twr: false, through: false, prevCross: null,
+      locAlong: 0, locAngle: 0, locLevel: false, gsAlong: 0,
+      hist: [], histT: 0, conflict: false, lost: false, gone: false
+    }, props);
+  }
+
+  function spawnArrival(S, entry, o = {}) {
+    const f = FIXES[entry];
+    const iaf = IAF_FOR[entry];
+    const [lo, hi] = ENTRY_ALT[entry];
+    const alt = o.alt ?? lo + 1000 * Math.floor(Math.random() * ((hi - lo) / 1000 + 1));
+    const x = o.x ?? f.x, y = o.y ?? f.y;
+    const h = brgTo(x, y, FIXES[iaf].x, FIXES[iaf].y);
+    const a = makeAc(S, 'arr', { x, y, hdg: h, tHdg: h, alt, tAlt: alt, mode: 'direct', fix: iaf, entry });
+    a.spd = a.tSpd = Math.min(250, a.max);
+    S.ac.push(a);
+    say(S, 'pilot', `Fenmouth Approach, ${titleTel(a.tel)}, ${levelStr(alt)}, inbound ${iaf}`);
+    return a;
+  }
+
+  function spawnDeparture(S, exit) {
+    exit = exit || pick(EXITS);
+    const a = makeAc(S, 'dep', { x: 0, y: 0, hdg: 270, tHdg: 270, alt: 0, tAlt: 5000, spd: 0, tSpd: 0, mode: 'ground', exit });
+    S.ac.push(a);
+    say(S, 'pilot', `Fenmouth, ${titleTel(a.tel)}, holding point runway 27, ready for departure, ${exit}`);
+    return a;
+  }
+
+  function create(opts = {}) {
+    const S = {
+      v: 2, t: 0, diff: opts.diff || 'busy', started: false, over: false, overWhy: '',
+      ac: [], log: [], logN: 0, seq: 0,
+      landed: 0, departed: 0, losses: 0, goArounds: 0, errors: 0, textbook: 0, score: 0,
+      nextSpawn: 50, runwayBusy: false, lossPairs: {}
+    };
+    spawnArrival(S, 'KITTY', { x: 9.5, y: 21, alt: 9000 });
+    spawnArrival(S, 'SELKA');
+    spawnDeparture(S, 'DUNOR');
+    return S;
+  }
+
+  function blocked(a, what) {
+    if (a.mode === 'landed') return `${a.id} has landed`;
+    if (a.twr && what !== 'ga') return `${a.id} is with Tower`;
+    if (a.mode === 'ground' && !['alt', 'to'].includes(what)) return `${a.id} is still on the ground`;
+    if (['lineup', 'roll', 'rotate'].includes(a.mode) && what !== 'alt') return `${a.id} is taking off`;
+    return null;
+  }
+
+  function setHeading(a, hdg, dir) {
+    if (a.loc) { a.loc = a.gs = a.ils = false; }
+    a.mode = 'heading'; a.fix = null; a.tHdg = norm(hdg); a.turn = dir; a.through = false;
+  }
+  function turnWords(a, hdg, dir) {
+    const diff = angDiff(hdg, a.hdg);
+    const d = dir || (Math.abs(diff) < 1 ? 0 : Math.sign(diff));
+    return d < 0 ? ['turn left heading', 'Left heading'] : d > 0 ? ['turn right heading', 'Right heading'] : ['fly heading', 'Heading'];
+  }
+
+  function cmdHeading(S, a, hdg, dir = 0) {
+    const b = blocked(a, 'hdg'); if (b) return no(b);
+    hdg = norm(Math.round(hdg));
+    const [w, rb] = turnWords(a, hdg, dir);
+    setHeading(a, hdg, dir);
+    atc(S, a, `${w} ${hdgStr(hdg)}`, `${rb} ${hdgStr(hdg)}`);
+    return ok();
+  }
+
+  // the controller's usual call: a 30° intercept heading plus the approach clearance
+  function interceptHeading(a) {
+    if (Math.abs(a.y) < 0.4) return 270;
+    return a.y > 0 ? 240 : 300;
+  }
+  function cmdIntercept(S, a) {
+    const b = blocked(a, 'hdg'); if (b) return no(b);
+    if (a.kind !== 'arr') return no('Only arrivals fly the ILS');
+    if (a.loc) return no(`${a.id} is already on the localiser`);
+    if (a.x < 4) return no(`${a.id} is too close to the runway to join final. Take it back out.`);
+    const hdg = interceptHeading(a);
+    const join = hdg === 270 ? a.x : a.x - Math.abs(a.y) / Math.tan(30 * D2R);
+    if (join < 6) {
+      return no(Math.abs(a.y) > 4
+        ? `${a.id} is too far to the side for a 30° turn-in from here. Put it on base first: heading ${a.y > 0 ? '180' : '360'}.`
+        : `A 30° turn-in now would join final only ${Math.max(0, join).toFixed(1)} NM out. Take it further east first.`);
+    }
+    if (join > 25) return no('That would join final beyond localiser range. Bring it closer first.');
+    const [w, rb] = turnWords(a, hdg, 0);
+    setHeading(a, hdg, 0);
+    a.ils = true; a.prevCross = null;
+    atc(S, a, `${w} ${hdgStr(hdg)}, cleared ILS approach runway 27`, `${rb} ${hdgStr(hdg)}, cleared ILS runway 27`);
+    return ok();
+  }
+
+  function cmdAlt(S, a, alt) {
+    const b = blocked(a, 'alt'); if (b) return no(b);
+    if (a.gs) return no(`${a.id} is on the glidepath`);
+    if (!(alt >= 2000 && alt <= 12000)) return no('Use altitudes from 2,000 to 12,000 ft');
+    alt = Math.round(alt / 1000) * 1000;
+    const cur = a.mode === 'ground' ? 0 : a.alt;
+    const verb = alt > cur + 50 ? 'climb' : alt < cur - 50 ? 'descend' : 'maintain';
+    a.tAlt = alt;
+    atc(S, a, `${verb} ${altWords(alt)}`, `${verb[0].toUpperCase() + verb.slice(1)} ${altWords(alt)}`);
+    return ok();
+  }
+
+  function cmdSpeed(S, a, s) {
+    const b = blocked(a, 'spd'); if (b) return no(b);
+    if (a.loc) return no(`${a.id} is flying its own approach speed`);
+    if (!(s >= 160 && s <= 250)) return no('Use speeds from 160 to 250 knots');
+    const v = Math.min(s, a.max);
+    const verb = v < a.spd - 3 ? 'reduce speed' : v > a.spd + 3 ? 'increase speed' : 'maintain speed';
+    a.tSpd = v;
+    atc(S, a, `${verb} ${s} knots`, v < s ? `Unable ${s}, best speed ${v} knots` : `Speed ${v} knots`);
+    return ok();
+  }
+
+  function cmdDirect(S, a, name) {
+    const b = blocked(a, 'dct'); if (b) return no(b);
+    if (!FIXES[name]) return no(`There's no fix called ${name}`);
+    if (a.loc) { a.loc = a.gs = a.ils = false; }
+    a.mode = 'direct'; a.fix = name; a.turn = 0; a.through = false;
+    atc(S, a, `route direct ${name}`, `Direct ${name}`);
+    return ok();
+  }
+
+  function cmdIls(S, a) {
+    const b = blocked(a, 'ils'); if (b) return no(b);
+    if (a.kind !== 'arr') return no('Only arrivals fly the ILS');
+    if (a.ils || a.loc) return no(`${a.id} is already cleared for the ILS`);
+    a.ils = true; a.through = false; a.prevCross = null;
+    atc(S, a, 'cleared ILS approach runway 27', 'Cleared ILS runway 27');
+    return ok();
+  }
+
+  function runwayUser(S, except) {
+    return S.ac.find(o => o !== except && ON_RWY.includes(o.mode)) || null;
+  }
+
+  function cmdTakeoff(S, a) {
+    if (a.kind !== 'dep' || a.mode !== 'ground') return no(`${a.id} isn't waiting to depart`);
+    const u = runwayUser(S, a);
+    if (u) return no(`${u.id} is still on the runway`);
+    a.mode = 'lineup'; a.timer = 6 + Math.random() * 6; a.tSpd = Math.min(250, a.max);
+    atc(S, a, 'runway 27, cleared for take-off', 'Cleared for take-off runway 27');
+    return ok();
+  }
+
+  function cmdGoAround(S, a) {
+    if (!(a.kind === 'arr' && (a.loc || a.ils))) return no(`${a.id} isn't on the approach`);
+    atc(S, a, 'go around', 'Going around');
+    goAround(S, a, null);
+    return ok();
+  }
+
+  function goAround(S, a, reason) {
+    a.ils = a.loc = a.gs = a.twr = false;
+    a.mode = 'heading'; a.fix = null; a.tHdg = 270; a.turn = 0;
+    a.tAlt = 3000; a.tSpd = Math.min(200, a.max); a.through = false; a.prevCross = null;
+    S.goArounds++; S.score -= 25;
+    if (reason) {
+      say(S, 'pilot', `${titleTel(a.tel)}, going around`);
+      say(S, 'sys', `${a.id} went around: ${reason}`);
+    }
+  }
+
+  function turnToward(a, h, dt, dir, rate) {
+    let d = angDiff(h, a.hdg);
+    if (dir < 0 && d > 0) d -= 360;
+    if (dir > 0 && d < 0) d += 360;
+    const r = rate * dt;
+    if (Math.abs(d) <= r) { a.hdg = norm(h); a.turn = 0; }
+    else a.hdg = norm(a.hdg + Math.sign(d) * r);
+  }
+
+  function land(S, a) {
+    const tb = a.locLevel && a.locAngle <= 30.5 && (a.locAlong - a.gsAlong) >= 2;
+    S.landed++; S.score += tb ? 150 : 100;
+    if (tb) S.textbook++;
+    say(S, 'good', `${a.id} landed${tb ? '. Textbook approach, +50' : ''}`);
+    a.mode = 'landed'; a.alt = 0; a.y = 0; a.hdg = 270; a.x = 0;
+    a.loc = a.gs = a.ils = false; a.twr = true;
+    a.timer = 40 + Math.random() * 15;      // runway occupancy until it turns off
+  }
+
+  function exitAirspace(S, a) {
+    a.gone = true;
+    if (a.kind === 'dep') {
+      const f = FIXES[a.exit];
+      const near = dist(a.x, a.y, f.x, f.y) < 7, high = a.alt >= 7000;
+      if (near && high) { S.departed++; S.score += 100; say(S, 'good', `${a.id} left via ${a.exit} at ${levelStr(a.alt)}`); }
+      else {
+        S.errors++; S.score -= 50;
+        say(S, 'bad', !near ? `${a.id} left the airspace away from ${a.exit}` : `${a.id} left too low. Exits need FL70 or above`);
+      }
+    } else {
+      S.errors++; S.score -= 50;
+      say(S, 'bad', `${a.id} left your airspace`);
+    }
+  }
+
+  function approach(S, a) {
+    if (a.ils && !a.loc) {
+      const along = a.x, cross = a.y;
+      const cov = along > 1 && along < 25 && Math.abs(Math.atan2(cross, along)) / D2R <= 12;
+      const ang = Math.abs(angDiff(a.hdg, 270));
+      const vy = Math.cos(a.hdg * D2R);
+      const R = (tas(a) / 3600) / (turnRate(a) * D2R);
+      const lead = R * (1 - Math.cos(Math.min(ang, 90) * D2R)) + 0.1;
+      const converging = cross * vy < 0 || Math.abs(cross) < 0.15;
+      if (cov && ang <= 45 && converging && Math.abs(cross) <= lead) {
+        a.loc = true; a.mode = 'ils'; a.fix = null; a.turn = 0;
+        a.locAlong = along; a.locAngle = ang;
+        a.locLevel = Math.abs(a.alt - a.tAlt) < 60 && a.alt < gsAlt(along) - 100;
+        say(S, 'pilot', `${titleTel(a.tel)}, localiser established`);
+      } else if (cov && a.prevCross !== null && Math.sign(cross) !== Math.sign(a.prevCross) && !a.through) {
+        a.through = true;
+        say(S, 'pilot', `${titleTel(a.tel)}, we've gone through the localiser`);
+        say(S, 'sys', ang > 45 ? `${a.id} met the centreline at ${Math.round(ang)}°. It needs 45° or less` : `${a.id} crossed the centreline without turning onto it`);
+      }
+      a.prevCross = cross;
+      return;
+    }
+    if (a.loc && !a.gs) {
+      const g = gsAlt(a.x);
+      if (Math.abs(a.alt - g) <= 150) { a.gs = true; a.gsAlong = a.x; }
+      else if (a.x < 3) { goAround(S, a, a.alt > g ? 'too high to join the glidepath' : 'not on the glidepath'); return; }
+    }
+    if (a.gs && !a.twr && a.x < 10) { a.twr = true; atc(S, a, 'contact Fenmouth Tower 118.705', 'Tower 118.705'); }
+    if (a.loc && a.x <= 0) {
+      if (!a.gs) { goAround(S, a, 'not on the glidepath'); return; }
+      const u = runwayUser(S, a);
+      if (u) { goAround(S, a, `runway occupied by ${u.id}`); return; }
+      land(S, a);
+    }
+  }
+
+  function move(S, a, dt) {
+    if (a.mode === 'ground') return;
+    if (a.mode === 'lineup') {
+      a.timer -= dt;
+      if (a.timer <= 0) { a.mode = 'roll'; a.x = 0; a.y = 0; a.hdg = 270; a.spd = 0; a.rollT = 0; }
+      return;
+    }
+    if (a.mode === 'roll' || a.mode === 'rotate') {
+      a.rollT += dt;
+      const spool = Math.min(1, 0.35 + 0.65 * a.rollT / 6);
+      const accel = a.acc * spool * (1 - 0.4 * Math.pow(a.spd / a.vr, 2));
+      a.spd += Math.max(0.6, accel) * dt;
+      a.x -= a.spd / 3600 * dt;
+      if (a.mode === 'roll' && a.spd >= a.vr) { a.mode = 'rotate'; a.timer = 3; }
+      else if (a.mode === 'rotate') {
+        a.timer -= dt;
+        if (a.timer <= 0) {
+          a.mode = 'heading'; a.phase = 'initial'; a.tHdg = 270; a.turn = 0; a.alt = 35;
+          say(S, 'pilot', `${titleTel(a.tel)}, airborne, climbing ${altWords(a.tAlt)}`);
+        }
+      }
+      return;
+    }
+    if (a.mode === 'landed') {
+      a.spd = Math.max(25, a.spd - 3.5 * dt);
+      a.x -= a.spd / 3600 * dt;
+      a.timer -= dt;
+      if (a.timer <= 0) a.gone = true;
+      return;
+    }
+    if (a.mode === 'direct') {
+      const f = FIXES[a.fix];
+      a.tHdg = brgTo(a.x, a.y, f.x, f.y);
+      if (dist(a.x, a.y, f.x, f.y) < 1.2) {
+        if (a.kind === 'arr' && (a.fix === 'LAPWI' || a.fix === 'TERNS')) {
+          a.mode = 'hold';
+          say(S, 'pilot', `${titleTel(a.tel)}, entering the hold at ${a.fix}`);
+        } else { a.mode = 'heading'; a.tHdg = a.hdg; a.fix = null; }
+      }
+    }
+    const v = tas(a) / 3600, rate = turnRate(a);
+    if (a.mode === 'ils') {
+      a.x -= v * dt;
+      a.y *= Math.max(0, 1 - dt / 5);
+      turnToward(a, 270, dt, 0, rate);
+    } else {
+      if (a.mode === 'hold') a.hdg = norm(a.hdg + rate * dt);
+      else if (!(a.kind === 'dep' && a.alt < 400)) turnToward(a, a.tHdg, dt, a.mode === 'heading' ? a.turn : 0, rate);
+      a.x += Math.sin(a.hdg * D2R) * v * dt;
+      a.y += Math.cos(a.hdg * D2R) * v * dt;
+    }
+    // speed
+    let ts = a.tSpd;
+    if (a.loc) ts = a.x > 10 ? Math.min(a.tSpd, 180) : a.x > 5 ? Math.min(a.tSpd, 160) : a.app;
+    if (a.kind === 'dep' && a.phase === 'initial') ts = a.v2 + 10;
+    const ds = ts - a.spd;
+    a.spd += Math.sign(ds) * Math.min(Math.abs(ds), (ds > 0 ? 1.6 : 1.2) * dt);
+    if (a.phase === 'initial' && a.alt >= 1500) a.phase = 'accel';
+    if (a.phase === 'accel' && a.spd >= a.tSpd - 5) a.phase = null;
+    // vertical
+    if (a.gs) {
+      const dd = gsAlt(Math.max(0, a.x)) - a.alt;
+      a.alt += Math.sign(dd) * Math.min(Math.abs(dd), 45 * dt);
+    } else {
+      const dd = a.tAlt - a.alt;
+      const up = a.climb * (a.phase === 'initial' ? 1.15 : a.phase === 'accel' ? 0.5 : Math.max(0.6, 1 - a.alt / 40000));
+      a.alt += Math.sign(dd) * Math.min(Math.abs(dd), (dd > 0 ? up : a.desc) / 60 * dt);
+    }
+    a.histT += dt;
+    if (a.histT >= 5) {
+      a.histT = 0;
+      a.hist.unshift([Math.round(a.x * 100) / 100, Math.round(a.y * 100) / 100]);
+      if (a.hist.length > 6) a.hist.length = 6;
+    }
+    if (a.kind === 'arr') approach(S, a);
+    if (!a.gone && Math.hypot(a.x, a.y) > SCOPE_R + 1) exitAirspace(S, a);
+  }
+
+  function predict(a, T) {
+    const v = tas(a) / 3600;
+    let x, y;
+    if (a.mode === 'hold') { x = a.x; y = a.y; }
+    else if (a.mode === 'ils') { x = a.x - v * T; y = a.y * Math.max(0, 1 - T / 5); }
+    else { x = a.x + Math.sin(a.hdg * D2R) * v * T; y = a.y + Math.cos(a.hdg * D2R) * v * T; }
+    let alt;
+    if (a.gs) alt = gsAlt(Math.max(0, x));
+    else { const dd = a.tAlt - a.alt; alt = a.alt + Math.sign(dd) * Math.min(Math.abs(dd), (dd > 0 ? a.climb : a.desc) / 60 * T); }
+    return { x, y, alt, loc: a.loc };
+  }
+
+  function separation(S) {
+    const air = S.ac.filter(a => !SURFACE.includes(a.mode) && a.alt >= 200);
+    for (const a of S.ac) { a.conflict = false; a.lost = false; }
+    const active = {};
+    for (let i = 0; i < air.length; i++) {
+      for (let j = i + 1; j < air.length; j++) {
+        const A = air[i], B = air[j];
+        const min = (A.loc && B.loc && A.x < 10 && B.x < 10) ? 2.5 : 3;
+        const d = dist(A.x, A.y, B.x, B.y), dv = Math.abs(A.alt - B.alt);
+        if (d < min && dv < 975) {
+          A.lost = B.lost = true;
+          const key = [A.id, B.id].sort().join('|');
+          active[key] = 1;
+          if (!S.lossPairs[key]) {
+            S.losses++; S.score -= 200;
+            say(S, 'bad', `Separation lost: ${A.id} and ${B.id}, ${d.toFixed(1)} NM and ${Math.round(dv / 100) * 100} ft apart`);
+            if (S.losses >= 3) { S.over = true; S.overWhy = 'Three losses of separation. In real life, each one would be reported and investigated.'; }
+          }
+        } else {
+          for (const T of [15, 30, 45, 60]) {
+            const pa = predict(A, T), pb = predict(B, T);
+            const m2 = (pa.loc && pb.loc && pa.x < 10 && pb.x < 10) ? 2.5 : 3;
+            if (dist(pa.x, pa.y, pb.x, pb.y) < m2 && Math.abs(pa.alt - pb.alt) < 975) { A.conflict = B.conflict = true; break; }
+          }
+        }
+      }
+    }
+    S.lossPairs = active;
+  }
+
+  function spawn(S) {
+    if (S.t < S.nextSpawn) return;
+    const base = DIFF[S.diff] * Math.max(0.55, 1 - (S.t / 60) * 0.015);
+    if (S.ac.length >= 14) { S.nextSpawn = S.t + 20; return; }
+    const depWaiting = S.ac.some(a => a.kind === 'dep' && a.mode === 'ground');
+    let made = false;
+    if (!depWaiting && Math.random() < 0.4) { spawnDeparture(S); made = true; }
+    else {
+      for (const e of shuffle(Object.keys(IAF_FOR))) {
+        const f = FIXES[e], lo = ENTRY_ALT[e][0];
+        if (!S.ac.some(o => dist(o.x, o.y, f.x, f.y) < 8 && o.alt > lo - 1500)) { spawnArrival(S, e); made = true; break; }
+      }
+    }
+    S.nextSpawn = S.t + (made ? base * (0.75 + Math.random() * 0.5) : 15);
+  }
+
+  // where the selected arrival's heading meets final, and whether that will work
+  function interceptInfo(a) {
+    if (a.kind !== 'arr' || a.loc || a.mode !== 'heading' || a.x <= 0.5) return null;
+    const h = a.tHdg;
+    const angle = Math.round(Math.abs(angDiff(h, 270)));
+    const vx = Math.sin(h * D2R), vy = Math.cos(h * D2R);
+    let xj;
+    if (Math.abs(a.y) < 0.15) xj = a.x;
+    else if (a.y * vy >= 0 || Math.abs(vy) < 1e-6) return { meets: false, grade: 'bad', msg: "On this heading it won't meet final." };
+    else xj = a.x + vx * (-a.y / vy);
+    const alt = a.tAlt, gsx = (alt - TCH) / GS_FT_NM;
+    const at = `${xj.toFixed(1)} NM out at ${angle}°`;
+    let grade, msg;
+    if (xj < 0.5) { grade = 'bad'; msg = 'On this heading it crosses the centreline past the runway.'; }
+    else if (angle > 45) { grade = 'bad'; msg = `Meets final ${at}. Too sharp: it will fly through the localiser.`; }
+    else if (xj < 4) { grade = 'bad'; msg = `Meets final only ${xj.toFixed(1)} NM out. Too close to settle on the approach.`; }
+    else if (xj > 25) { grade = 'warn'; msg = `Meets final ${xj.toFixed(1)} NM out, beyond localiser range.`; }
+    else if (alt > gsAlt(xj) + 150) { grade = 'warn'; msg = `Meets final ${at}, but ${levelStr(alt)} is above the glidepath there. Descend it or join further out.`; }
+    else if (angle <= 30 && alt < gsAlt(xj) - 100 && xj - gsx >= 2) { grade = 'good'; msg = `Meets final ${at}, level below the glidepath. Textbook.`; }
+    else { grade = 'ok'; msg = `Meets final ${at}. That works.`; }
+    return { meets: xj >= 0.5, x: xj, angle, grade, msg };
+  }
+
+  function step(S, dt) {
+    if (S.over || !S.started) return;
+    S.t += dt;
+    for (const a of S.ac) if (!a.gone) move(S, a, dt);
+    S.ac = S.ac.filter(a => !a.gone);
+    separation(S);
+    spawn(S);
+  }
+
+  return {
+    create, step, interceptInfo, FIXES, EXITS, D2R, SCOPE_R, SURFACE, gsAlt, brgTo, dist, pad3, hdgStr, norm, angDiff, levelStr, tas,
+    cmd: { heading: cmdHeading, intercept: cmdIntercept, alt: cmdAlt, speed: cmdSpeed, direct: cmdDirect, ils: cmdIls, takeoff: cmdTakeoff, goAround: cmdGoAround }
+  };
+})();
+/*SIM-END*/
+
+// ================= UI =================
+const $ = id => document.getElementById(id);
+const D2R = SIM.D2R;
+const css = getComputedStyle(document.documentElement);
+const C = {};
+['scope', 'sea', 'coast', 'ring', 'ring-text', 'cl', 'fix', 'rwy', 'arr', 'dep', 'est', 'twr', 'warn', 'loss', 'sel', 'text', 'muted']
+  .forEach(k => { C[k] = css.getPropertyValue('--' + k).trim(); });
+const GRADE_COL = { good: C.est, ok: C.dep, warn: C.warn, bad: C.loss };
+const MONO = '"B612 Mono", ui-monospace, Menlo, monospace';
+const UIF = '"B612", "Segoe UI", system-ui, sans-serif';
+const VIEWS = { sector: { x: 0, y: 0, r: 32.5 }, final: { x: 8, y: 0, r: 14 } };
+const COAST = [[-40, -6.5], [-26, -7.5], [-19, -5.5], [-12, -7], [-6, -4.5], [-1, -3.6], [4, -5], [9, -4.2], [14, -7], [20, -9.5], [26, -8.5], [40, -12]];
+const BEST_KEY = 'fenmouth-approach:best';
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const mmss = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const atHolding = a => a.mode === 'ground' || a.mode === 'lineup';
+const onSurface = a => SIM.SURFACE.includes(a.mode);
+
+let S, selId = null, speed = 4, paused = false, view = 'sector';
+let W = 0, dpr = 1, hits = [], lastPanel = 0, lastLogN = -1, errTimer = 0;
+
+const canvas = $('scope');
+const ctx = canvas.getContext('2d');
+
+function readBest() { try { const v = parseInt(localStorage.getItem(BEST_KEY), 10); return isFinite(v) ? v : null; } catch (e) { return null; } }
+function writeBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* storage unavailable */ } }
+function sel() { return selId ? S.ac.find(a => a.id === selId) || null : null; }
+
+function resize() {
+  const r = canvas.getBoundingClientRect();
+  if (!r.width) return;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = r.width;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(W * dpr);
+}
+new ResizeObserver(resize).observe($('scopeWrap'));
+
+// ---------- drawing ----------
+function colorOf(a) {
+  return a.lost ? C.loss : a.conflict ? C.warn : a.twr ? C.twr : a.loc ? C.est : a.kind === 'dep' ? C.dep : C.arr;
+}
+function labelLines(a) {
+  if (a.mode === 'ground') return [a.id, `READY ${a.type}`, a.exit];
+  if (a.mode === 'lineup') return [a.id, 'LINING UP', a.exit];
+  if (a.mode === 'landed') return [a.id, '000', `${SIM.pad3(a.spd)} RWY`];
+  if (a.mode === 'roll' || a.mode === 'rotate') return [a.id, a.mode === 'rotate' ? 'ROTATE' : `VR ${a.vr}`, `${SIM.pad3(a.spd)} ${a.exit}`];
+  const climbing = !a.gs && a.tAlt > a.alt + 50;
+  const descending = a.gs || a.tAlt < a.alt - 50;
+  const arrow = climbing ? '↑' : descending ? '↓' : ' ';
+  const cleared = (!a.gs && Math.abs(a.tAlt - a.alt) > 50) ? SIM.pad3(a.tAlt / 100) : '';
+  const tag = a.twr ? 'TWR' : a.gs ? 'GS' : a.loc ? 'LOC' : a.mode === 'hold' ? 'HOLD' : a.ils ? 'ILS'
+    : a.kind === 'dep' ? a.exit : a.mode === 'direct' ? a.fix : 'H' + SIM.hdgStr(a.tHdg);
+  return [a.id, `${SIM.pad3(a.alt / 100)}${arrow}${cleared}`, `${SIM.pad3(a.spd)} ${tag}`];
+}
+
+function draw() {
+  if (!W) { resize(); if (!W) return; }
+  const V = VIEWS[view];
+  const scale = W / (2 * V.r);
+  const X = x => W / 2 + (x - V.x) * scale;
+  const Y = y => W / 2 - (y - V.y) * scale;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = C.scope; ctx.fillRect(0, 0, W, W);
+
+  // sea and coast
+  ctx.beginPath();
+  COAST.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)));
+  ctx.lineTo(X(40), Y(-60)); ctx.lineTo(X(-40), Y(-60)); ctx.closePath();
+  ctx.fillStyle = C.sea; ctx.fill();
+  ctx.beginPath();
+  COAST.forEach(([x, y], i) => i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)));
+  ctx.strokeStyle = C.coast; ctx.lineWidth = 1; ctx.stroke();
+
+  // range rings
+  ctx.font = `10px ${MONO}`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  for (const r of [10, 20, 30]) {
+    ctx.strokeStyle = C.ring; ctx.beginPath(); ctx.arc(X(0), Y(0), r * scale, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = C['ring-text']; ctx.fillText(`${r} NM`, X(0), Y(r) - 3);
+  }
+  // localiser coverage
+  ctx.setLineDash([2, 6]); ctx.strokeStyle = C.ring;
+  for (const s of [1, -1]) {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+    ctx.lineTo(X(25 * Math.cos(12 * D2R)), Y(s * 25 * Math.sin(12 * D2R))); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // extended centreline
+  ctx.strokeStyle = C.cl; ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(22), Y(0)); ctx.stroke();
+  for (let n = 1; n <= 22; n++) {
+    const t = n % 5 === 0 ? 5 : 2.5;
+    ctx.beginPath(); ctx.moveTo(X(n), Y(0) - t); ctx.lineTo(X(n), Y(0) + t); ctx.stroke();
+  }
+  ctx.fillStyle = C.cl; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('ILS 27', X(22) + 6, Y(0));
+  // runway
+  ctx.strokeStyle = C.rwy; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(-1.5), Y(0)); ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.fillStyle = C.muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('FENMOUTH', X(-1.5) - 8, Y(0));
+  // fixes
+  for (const f of Object.values(SIM.FIXES)) {
+    const fx = X(f.x), fy = Y(f.y);
+    ctx.strokeStyle = C.fix;
+    ctx.beginPath(); ctx.moveTo(fx, fy - 4.5); ctx.lineTo(fx + 4, fy + 3); ctx.lineTo(fx - 4, fy + 3); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = C.fix; ctx.textBaseline = 'top';
+    if (f.x > 20) { ctx.textAlign = 'right'; ctx.fillText(f.name, fx - 7, fy + 3); }
+    else { ctx.textAlign = 'left'; ctx.fillText(f.name, fx + 7, fy + 3); }
+  }
+
+  // selected aircraft: assigned path and where it meets final
+  const s = sel();
+  if (s && !onSurface(s)) {
+    const info = SIM.interceptInfo(s);
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = C.sel; ctx.globalAlpha = 0.45; ctx.beginPath();
+    if ((s.mode === 'direct' || s.mode === 'hold') && s.fix) {
+      const f = SIM.FIXES[s.fix]; ctx.moveTo(X(s.x), Y(s.y)); ctx.lineTo(X(f.x), Y(f.y));
+    } else if (s.mode === 'heading') {
+      const len = info && info.meets && info.x < 30 ? Math.hypot(info.x - s.x, s.y) : 12;
+      ctx.moveTo(X(s.x), Y(s.y));
+      ctx.lineTo(X(s.x + Math.sin(s.tHdg * D2R) * len), Y(s.y + Math.cos(s.tHdg * D2R) * len));
+    }
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    if (info && info.meets && info.x < 30) {
+      const col = GRADE_COL[info.grade];
+      const jx = X(info.x), jy = Y(0);
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(jx, jy, 6, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+      ctx.font = `700 10px ${MONO}`; ctx.fillStyle = col; ctx.textAlign = 'center';
+      ctx.textBaseline = s.y > 0 ? 'top' : 'bottom';
+      ctx.fillText(`${info.x.toFixed(1)} NM · ${info.angle}°`, jx, s.y > 0 ? jy + 9 : jy - 9);
+    }
+  }
+
+  // aircraft
+  hits = [];
+  ctx.font = `11px ${MONO}`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  for (const a of S.ac) {
+    const col = colorOf(a);
+    const hp = atHolding(a);
+    const px = hp ? X(0.25) : X(a.x), py = hp ? Y(-0.4) : Y(a.y);
+    ctx.fillStyle = col;
+    a.hist.forEach((h, i) => { ctx.globalAlpha = Math.max(0.12, 0.55 - i * 0.08); ctx.fillRect(X(h[0]) - 1, Y(h[1]) - 1, 2, 2); });
+    ctx.globalAlpha = 1;
+    if (!hp) {
+      const v = SIM.tas(a) / 60;
+      let lx, ly;
+      if (a.mode === 'ils') { lx = a.x - v; ly = a.y * 0.8; }
+      else { lx = a.x + Math.sin(a.hdg * D2R) * v; ly = a.y + Math.cos(a.hdg * D2R) * v; }
+      ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(X(lx), Y(ly)); ctx.stroke();
+      ctx.fillRect(px - 3.5, py - 3.5, 7, 7);
+    } else {
+      ctx.strokeStyle = col; ctx.strokeRect(px - 3.5, py - 3.5, 7, 7);
+    }
+    if (a.id === selId) {
+      ctx.strokeStyle = C.sel; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(px, py, 10, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+    }
+    const lines = labelLines(a);
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 6, h = lines.length * 12 + 4;
+    let bx = px + 12, by = py - h - 4;
+    if (hp || a.mode === 'landed') by = py + 8;
+    if (bx + w > W - 2) bx = px - 12 - w;
+    if (by < 2) by = py + 8;
+    const cx = bx > px ? bx : bx + w, cy = by > py ? by : by + h;
+    ctx.strokeStyle = col; ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (a.id === selId) { ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(bx, by, w, h); }
+    ctx.fillStyle = col;
+    lines.forEach((l, i) => ctx.fillText(l, bx + 3, by + 2 + i * 12));
+    hits.push({ id: a.id, px, py, box: { x: bx, y: by, w, h } });
+  }
+
+  if (!S.started || (paused && !S.over)) {
+    ctx.font = `700 12px ${UIF}`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.fillStyle = C.text;
+    ctx.fillText(!S.started ? 'PRESS START SHIFT TO BEGIN' : 'PAUSED', W / 2, 12);
+  }
+}
+
+// ---------- commands ----------
+function issue(res) {
+  const e = $('cmdErr');
+  if (!res.ok) { e.textContent = res.msg; clearTimeout(errTimer); errTimer = setTimeout(() => { e.textContent = ''; }, 4000); }
+  else e.textContent = '';
+  lastPanel = 0;
+  return res;
+}
+function canAct() {
+  if (!S.started) return issue({ ok: false, msg: 'Start the shift first' }).ok;
+  if (S.over) return false;
+  return true;
+}
+
+function findAc(tok) {
+  if (!/^[A-Z]{3}\d+$/.test(tok)) return null;
+  return S.ac.find(a => a.id === tok) || null;
+}
+function findFix(tok) {
+  if (SIM.FIXES[tok]) return tok;
+  if (tok.length >= 3) {
+    const m = Object.keys(SIM.FIXES).filter(n => n.startsWith(tok));
+    if (m.length === 1) return m[0];
+  }
+  return null;
+}
+function runCommand(text) {
+  if (!canAct()) return;
+  const toks = text.trim().toUpperCase().split(/\s+/).filter(Boolean);
+  if (!toks.length) return;
+  let a = sel();
+  const first = findAc(toks[0]);
+  if (first) { a = first; selId = a.id; toks.shift(); }
+  if (!a) return issue({ ok: false, msg: 'Select an aircraft first, or start with its callsign' });
+  if (!toks.length) return issue({ ok: true });
+  const fails = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    let m, r = null;
+    if ((m = t.match(/^([LR])?H?(\d{1,3})$/)) && +m[2] <= 360) r = SIM.cmd.heading(S, a, +m[2], m[1] === 'L' ? -1 : m[1] === 'R' ? 1 : 0);
+    else if ((m = t.match(/^A(\d{1,2})$/))) r = SIM.cmd.alt(S, a, +m[1] * 1000);
+    else if ((m = t.match(/^A(\d{4,5})$/))) r = SIM.cmd.alt(S, a, +m[1]);
+    else if ((m = t.match(/^FL(\d{2,3})$/))) r = SIM.cmd.alt(S, a, +m[1] * 100);
+    else if ((m = t.match(/^S(\d{3})$/))) r = SIM.cmd.speed(S, a, +m[1]);
+    else if (['INT', 'I', 'J', 'JOIN'].includes(t)) r = SIM.cmd.intercept(S, a);
+    else if (['ILS', 'C', 'CL', 'CLR'].includes(t)) r = SIM.cmd.ils(S, a);
+    else if (['TO', 'T', 'CTO'].includes(t)) r = SIM.cmd.takeoff(S, a);
+    else if (t === 'GA') r = SIM.cmd.goAround(S, a);
+    else if ((t === 'D' || t === 'DCT') && toks[i + 1] && findFix(toks[i + 1])) { r = SIM.cmd.direct(S, a, findFix(toks[i + 1])); i++; }
+    else if ((m = t.match(/^D(?:CT)?([A-Z]{3,5})$/)) && findFix(m[1])) r = SIM.cmd.direct(S, a, findFix(m[1]));
+    else if (findFix(t)) r = SIM.cmd.direct(S, a, findFix(t));
+    if (!r) fails.push(`I don't understand "${t}"`);
+    else if (!r.ok) fails.push(r.msg);
+  }
+  issue(fails.length ? { ok: false, msg: fails.join('. ') } : { ok: true });
+}
+
+$('cmdForm').addEventListener('submit', e => {
+  e.preventDefault();
+  runCommand($('cmdIn').value);
+  $('cmdIn').value = '';
+});
+
+// build chips
+$('hdgChips').innerHTML = [90, 180, 240, 270, 300, 360].map(n => `<button type="button" class="b" data-act="hdgabs" data-v="${n}">${SIM.hdgStr(n)}</button>`).join('');
+$('altChips').innerHTML = Array.from({ length: 11 }, (_, i) => i + 2).map(n => `<button type="button" class="b" data-act="alt" data-v="${n * 1000}">${n}</button>`).join('');
+$('spdChips').innerHTML = [160, 180, 200, 220, 250].map(n => `<button type="button" class="b" data-act="spd" data-v="${n}">${n}</button>`).join('');
+$('dctChips').innerHTML = ['LAPWI', 'TERNS', 'KITTY', 'ORBAN', 'SELKA', 'DUNOR'].map(n => `<button type="button" class="b" data-act="dct" data-v="${n}">${n}</button>`).join('');
+
+$('cmdCard').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  const a = sel();
+  if (!a || !canAct()) return;
+  const act = b.dataset.act;
+  if (act === 'hdg') {
+    const dv = +b.dataset.v;
+    const base = a.mode === 'heading' ? a.tHdg : a.hdg;
+    issue(SIM.cmd.heading(S, a, Math.round((base + dv) / 5) * 5, dv < 0 ? -1 : 1));
+  } else if (act === 'hdgabs') issue(SIM.cmd.heading(S, a, +b.dataset.v, 0));
+  else if (act === 'alt') issue(SIM.cmd.alt(S, a, +b.dataset.v));
+  else if (act === 'spd') issue(SIM.cmd.speed(S, a, +b.dataset.v));
+  else if (act === 'dct') issue(SIM.cmd.direct(S, a, b.dataset.v));
+  else if (b.id === 'bInt') issue(SIM.cmd.intercept(S, a));
+  else if (b.id === 'bIls') issue(SIM.cmd.ils(S, a));
+  else if (b.id === 'bTo') issue(SIM.cmd.takeoff(S, a));
+  else if (b.id === 'bGa') issue(SIM.cmd.goAround(S, a));
+});
+
+// radar clicks
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  let best = null, bd = 16;
+  for (const h of hits) {
+    const d = Math.hypot(h.px - px, h.py - py);
+    if (d < bd) { bd = d; best = h; }
+    if (px >= h.box.x && px <= h.box.x + h.box.w && py >= h.box.y && py <= h.box.y + h.box.h && bd > 0) { best = h; bd = 0; }
+  }
+  if (best) { selId = best.id === selId ? null : best.id; lastPanel = 0; return; }
+  const a = sel();
+  if (!a) return;
+  if (onSurface(a) || a.twr) return;
+  if (!canAct()) return;
+  const V = VIEWS[view], scale = W / (2 * V.r);
+  const x = V.x + (px - W / 2) / scale, y = V.y - (py - W / 2) / scale;
+  const h = Math.round(SIM.brgTo(a.x, a.y, x, y) / 5) * 5;
+  issue(SIM.cmd.heading(S, a, h, 0));
+});
+
+$('strips').addEventListener('pointerdown', e => {
+  const el = e.target.closest('.strip');
+  if (el) { selId = el.dataset.id; lastPanel = 0; }
+});
+
+// ---------- panel ----------
+function phaseText(a) {
+  if (a.kind === 'dep') {
+    if (a.mode === 'ground') return `Departure to ${a.exit} · ready at the holding point`;
+    if (a.mode === 'lineup') return `Departure to ${a.exit} · lining up`;
+    if (a.mode === 'roll') return `Departure to ${a.exit} · take-off roll, rotates at ${a.vr} kt`;
+    if (a.mode === 'rotate') return `Departure to ${a.exit} · rotating`;
+    if (a.phase === 'initial') return `Departure to ${a.exit} · initial climb at ${a.v2 + 10} kt`;
+    return `Departure to ${a.exit} · leave at FL70 or above`;
+  }
+  if (a.mode === 'landed') return `Arrival from ${a.entry} · landed, vacating the runway`;
+  const st = a.twr ? 'with Tower' : a.gs ? 'on the glidepath' : a.loc ? 'on the localiser'
+    : a.mode === 'hold' ? `holding at ${a.fix}` : a.ils ? 'cleared ILS, waiting to join'
+    : a.mode === 'direct' ? `direct ${a.fix}` : `heading ${SIM.hdgStr(a.tHdg)}`;
+  return `Arrival from ${a.entry} · ${st}`;
+}
+function tipText(a) {
+  if (a.kind === 'dep') {
+    if (a.mode === 'ground') return 'Clear it for take-off when nothing is on short final and the runway is empty. It climbs to 5,000 ft unless you change that, and won\'t turn below 400 ft.';
+    return `Climb it to FL70 or above and send it to ${a.exit}, clear of the arrivals.`;
+  }
+  if (a.mode === 'landed') return 'It holds the runway until it turns off, usually under a minute.';
+  if (a.twr) return 'With Tower. Keep the next arrival at least 2.5 NM behind it.';
+  if (a.loc) return 'On the localiser. It joins the glidepath from below and slows down by itself.';
+  if (a.ils) return 'Cleared ILS. It flies its heading, then turns onto the centreline when it gets there.';
+  let t = a.tAlt > 4000 ? 'Descend it to about 3,000 ft. ' : '';
+  const baseHdg = a.y > 0 ? '180' : '360';
+  if (a.mode === 'direct' || a.mode === 'hold') return t + `When it's near ${a.fix || 'the hold'}, turn it onto base, heading ${baseHdg}.`;
+  if (a.x <= 2) return t + 'It\'s west of the field. Bring it round to the east: direct LAPWI or TERNS.';
+  const join30 = a.x - Math.abs(a.y) * Math.tan(60 * D2R);
+  if (a.x < 12 && Math.abs(a.y) < 6) t += 'It\'s close in. Send it east on heading 090 to about 15 NM out, then bring it round.';
+  else if (join30 >= 8 && Math.abs(a.y) <= 5) t += 'Good position. Press "Intercept and clear ILS".';
+  else if (Math.abs(a.y) > 4) t += `Turn it onto base, heading ${baseHdg}, then press "Intercept and clear ILS" when it's about 3 NM from the centreline.`;
+  else t += 'Take it a little further east before turning it in.';
+  return t;
+}
+function setDis(selector, v) { document.querySelectorAll(selector).forEach(b => { b.disabled = v; }); }
+
+function renderStrips() {
+  const order = a => atHolding(a) ? -1 : a.kind === 'arr' ? Math.hypot(a.x, a.y) : 100 + Math.hypot(a.x, a.y);
+  const list = [...S.ac].sort((p, q) => order(p) - order(q));
+  $('strips').innerHTML = list.length ? list.map(a => {
+    const cls = ['strip', a.kind, a.twr ? 'twr' : a.loc ? 'est' : '', a.lost ? 'lost' : a.conflict ? 'warn' : '', a.id === selId ? 'sel' : ''].join(' ');
+    const route = a.kind === 'arr' ? `${a.type} · ${a.entry} → ${a.mode === 'landed' ? 'RWY' : a.twr ? 'TWR' : a.loc ? 'ILS' : a.fix || SIM.hdgStr(a.tHdg)}` : `${a.type} · → ${a.exit}`;
+    const alt = a.mode === 'ground' ? 'RDY' : ['lineup', 'roll', 'rotate'].includes(a.mode) ? 'T/O' : a.mode === 'landed' ? 'RWY' : SIM.levelStr(a.alt);
+    return `<div class="${cls}" data-id="${a.id}"><span class="s-cs">${a.id}</span><span class="s-mid">${esc(route)}</span><span>${alt}</span></div>`;
+  }).join('') : '<p class="small muted">No traffic.</p>';
+}
+
+function renderLog() {
+  if (S.logN === lastLogN) return;
+  lastLogN = S.logN;
+  const el = $('log');
+  el.innerHTML = S.log.map(l => `<p class="l-${l.k}"><span class="lt">${mmss(l.t)}</span><span>${esc(l.m)}</span></p>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function updatePanel() {
+  $('stScore').textContent = S.score;
+  $('stLanded').textContent = S.landed;
+  $('stDeparted').textContent = S.departed;
+  $('stLoss').textContent = `${S.losses}/3`;
+  $('stLoss').classList.toggle('bad', S.losses > 0);
+  $('stClock').textContent = mmss(S.t);
+  $('brief').hidden = S.started;
+  $('cmdCard').hidden = !S.started;
+  $('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  $('pauseBtn').disabled = !S.started || S.over;
+
+  const a = sel();
+  if (selId && !a) selId = null;
+  $('noSel').hidden = !!a;
+  $('selBox').hidden = !a;
+  if (a) {
+    $('sCs').textContent = a.id;
+    $('sTel').textContent = `${a.tel} · ${a.type}`;
+    $('sPhase').textContent = phaseText(a);
+    const surf = onSurface(a);
+    $('sHdg').textContent = surf ? '270' : SIM.hdgStr(a.hdg) + (a.mode === 'heading' && Math.abs(SIM.angDiff(a.tHdg, a.hdg)) > 1 ? ` → ${SIM.hdgStr(a.tHdg)}` : '');
+    $('sAlt').textContent = (surf ? 'ground' : SIM.levelStr(a.alt)) + (!a.gs && a.mode !== 'landed' && Math.abs(a.tAlt - a.alt) > 50 ? ` → ${SIM.levelStr(a.tAlt)}` : '');
+    $('sSpd').textContent = `${Math.round(a.spd)} kt`;
+    $('sHdgSet').textContent = surf ? '–' : SIM.hdgStr(a.mode === 'heading' ? a.tHdg : a.hdg);
+    const info = SIM.interceptInfo(a);
+    const j = $('sJoin');
+    j.hidden = !info;
+    if (info) { j.className = `join ${info.grade}`; j.textContent = info.msg; }
+    setDis('[data-act=hdg]', a.twr || surf);
+    setDis('[data-act=hdgabs]', a.twr || surf);
+    document.querySelectorAll('[data-act=hdgabs]').forEach(b => b.classList.toggle('on', a.mode === 'heading' && Math.round(SIM.norm(a.tHdg)) === SIM.norm(+b.dataset.v)));
+    setDis('[data-act=alt]', a.twr || a.gs || a.mode === 'landed');
+    setDis('[data-act=spd]', a.twr || surf || a.loc);
+    setDis('[data-act=dct]', a.twr || surf);
+    document.querySelectorAll('[data-act=alt]').forEach(b => b.classList.toggle('on', +b.dataset.v === a.tAlt && !a.gs && a.mode !== 'landed'));
+    document.querySelectorAll('[data-act=spd]').forEach(b => b.classList.toggle('on', +b.dataset.v === a.tSpd && !a.loc && !surf && a.phase !== 'initial'));
+    document.querySelectorAll('[data-act=dct]').forEach(b => b.classList.toggle('on', (a.mode === 'direct' || a.mode === 'hold') && b.dataset.v === a.fix));
+    const arrAir = a.kind === 'arr' && !surf;
+    $('bInt').hidden = !arrAir;
+    $('bInt').disabled = a.twr || a.loc;
+    $('bIls').hidden = !arrAir;
+    $('bIls').disabled = a.twr || a.ils || a.loc;
+    $('bTo').hidden = !(a.kind === 'dep' && a.mode === 'ground');
+    $('bGa').hidden = !arrAir;
+    $('bGa').disabled = !(a.loc || a.ils);
+    $('sTip').textContent = tipText(a);
+  }
+  renderStrips();
+  renderLog();
+}
+
+function showOver() {
+  const best = readBest();
+  const isBest = best === null || S.score > best;
+  if (isBest) writeBest(S.score);
+  $('ovTitle').textContent = isBest ? 'New best shift' : 'Shift over';
+  $('ovWhy').textContent = S.overWhy;
+  const rows = [
+    ['Landed', S.landed], ['Textbook approaches', S.textbook], ['Departed', S.departed],
+    ['Go-arounds', S.goArounds], ['Left airspace wrongly', S.errors], ['Shift length', mmss(S.t)],
+    ['Score', S.score], ['Best', Math.max(S.score, best ?? S.score)]
+  ];
+  $('ovStats').innerHTML = rows.map(r => `<div><dt>${r[0]}</dt><dd>${r[1]}</dd></div>`).join('');
+  $('overlay').hidden = false;
+}
+
+// ---------- controls ----------
+$('startBtn').addEventListener('click', () => {
+  S.started = true; paused = false; lastPanel = 0;
+  if (!selId && S.ac.length) selId = S.ac[0].id;
+});
+$('againBtn').addEventListener('click', () => {
+  const diff = S.diff;
+  S = SIM.create({ diff }); S.started = true; paused = false; selId = S.ac[0].id; lastLogN = -1; lastPanel = 0;
+  $('overlay').hidden = true;
+});
+$('diffSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  S.diff = b.dataset.diff;
+  $('diffSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+});
+$('speedSeg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  speed = +b.dataset.spd;
+  $('speedSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+});
+$('pauseBtn').addEventListener('click', () => { paused = !paused; lastPanel = 0; });
+function setView(v) {
+  view = v;
+  $('vSector').classList.toggle('on', v === 'sector');
+  $('vFinal').classList.toggle('on', v === 'final');
+}
+$('vSector').addEventListener('click', () => setView('sector'));
+$('vFinal').addEventListener('click', () => setView('final'));
+
+window.addEventListener('keydown', e => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT') { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape') { selId = null; lastPanel = 0; return; }
+  if (e.key === ' ' && S.started && !S.over && tag !== 'BUTTON') { e.preventDefault(); paused = !paused; lastPanel = 0; return; }
+  if (S.started && /^[a-z0-9]$/i.test(e.key)) $('cmdIn').focus();
+});
+
+// ---------- loop ----------
+let last = performance.now();
+function frame(now) {
+  const rdt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (S.started && !paused && !S.over) {
+    let simT = rdt * speed;
+    while (simT > 0) { const d = Math.min(0.5, simT); SIM.step(S, d); simT -= d; }
+    if (S.over) { showOver(); lastPanel = 0; }
+  }
+  draw();
+  if (now - lastPanel > 200) { updatePanel(); lastPanel = now; }
+  requestAnimationFrame(frame);
+}
+
+function start(data) {
+  data = data || {};
+  if (data.S && Array.isArray(data.S.ac) && data.S.v === 2) {
+    S = data.S; selId = data.selId ?? null; speed = data.speed ?? 4; view = data.view ?? 'sector'; paused = !!data.paused;
+    $('speedSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', +x.dataset.spd === speed));
+    setView(view);
+    if (S.over) showOver();
+  } else {
+    S = SIM.create({ diff: 'busy' });
+  }
+  const best = readBest();
+  $('bestLine').textContent = best === null ? 'Your best score is saved in this browser.' : `Your best shift: ${best} points.`;
+  if (window.claude && window.claude.hot && typeof window.claude.hot.snapshot === 'function') {
+    window.claude.hot.snapshot(() => ({ S, selId, speed, view, paused }));
+  }
+  resize();
+  updatePanel();
+  requestAnimationFrame(t => { last = t; frame(t); });
+}
+
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
+</body>
+</html>
